@@ -64,6 +64,7 @@ class YoutubeTranscript {
      * @param config Get transcript in a specific language ISO
      */
     static fetchTranscript(videoId, config) {
+        var _a;
         return __awaiter(this, void 0, void 0, function* () {
             const identifier = this.retrieveVideoId(videoId);
             const options = {
@@ -72,11 +73,11 @@ class YoutubeTranscript {
                 body: JSON.stringify({
                     context: {
                         client: {
-                            clientName: 'WEB',
-                            clientVersion: '2.20240304.00.00',
+                            clientName: 'ANDROID',
+                            clientVersion: '19.09.37',
+                            androidSdkVersion: 30,
                             hl: 'en',
                             gl: 'US',
-                            userAgent: USER_AGENT
                         }
                     },
                     videoId: identifier,
@@ -96,9 +97,10 @@ class YoutubeTranscript {
                 }),
             };
             const InnerTubeApiResponse = yield fetch('https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8', options);
-            const { captions: { playerCaptionsTracklistRenderer: captions } } = yield InnerTubeApiResponse.json();
+            const responseJson = yield InnerTubeApiResponse.json();
+            const captions = (_a = responseJson === null || responseJson === void 0 ? void 0 : responseJson.captions) === null || _a === void 0 ? void 0 : _a.playerCaptionsTracklistRenderer;
             if (!captions) {
-                throw new YoutubeTranscriptDisabledError(videoId);
+                throw new YoutubeTranscriptDisabledError(identifier);
             }
             if (!('captionTracks' in captions)) {
                 throw new YoutubeTranscriptNotAvailableError(videoId);
@@ -108,7 +110,7 @@ class YoutubeTranscript {
                 throw new YoutubeTranscriptNotAvailableLanguageError(config === null || config === void 0 ? void 0 : config.lang, captions.captionTracks.map((track) => track.languageCode), videoId);
             }
             const transcriptURL = ((config === null || config === void 0 ? void 0 : config.lang) ? captions.captionTracks.find((track) => track.languageCode === (config === null || config === void 0 ? void 0 : config.lang))
-                : captions.captionTracks[0]).baseUrl;
+                : captions.captionTracks[0]).baseUrl.replace('&fmt=srv3', '') + '&fmt=srv1';
             const transcriptResponse = yield fetch(transcriptURL, {
                 headers: Object.assign(Object.assign({}, ((config === null || config === void 0 ? void 0 : config.lang) && { 'Accept-Language': config.lang })), { 'User-Agent': USER_AGENT }),
             });
