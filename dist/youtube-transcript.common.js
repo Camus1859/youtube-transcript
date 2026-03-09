@@ -76,7 +76,8 @@ class YoutubeTranscript {
                 return yield this.fetchTranscriptWithHtmlScraping(videoId, config);
             }
             catch (e) {
-                if (e instanceof YoutubeTranscriptEmptyError) {
+                if (e instanceof YoutubeTranscriptEmptyError ||
+                    e instanceof YoutubeTranscriptDisabledError) {
                     return yield this.fetchTranscriptWithInnerTube(videoId, config);
                 }
                 else {
