@@ -1,15 +1,25 @@
 {
-  "name": "youtube-transcript",
-  "version": "1.2.1",
+  "name": "@danielxceron/youtube-transcript",
+  "version": "1.2.6",
   "description": "Fetch transcript from a youtube video",
   "main": "dist/youtube-transcript.common.js",
   "browser": "dist/youtube-transcript.esm.js",
   "module": "dist/youtube-transcript.esm.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/youtube-transcript.esm.js",
+      "require": "./dist/youtube-transcript.common.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
   "scripts": {
     "build": "rollup -c"
   },
-  "author": "Kakulukian",
+  "author": "Daniel Ceron Claros <danielxceron>",
+  "contributors": [
+    "Kakulukian (Original author)"
+  ],
   "keywords": [
     "youtube",
     "transcript"
@@ -25,11 +35,11 @@
   "files": [
     "dist/*"
   ],
-  "repository": "https://github.com/Kakulukian/youtube-transcript.git",
+  "repository": "https://github.com/danielxceron/youtube-transcript.git",
   "publishConfig": {
     "access": "public"
   },
-  "homepage": "https://github.com/Kakulukian/youtube-transcript",
+  "homepage": "https://github.com/danielxceron/youtube-transcript",
   "engines": {
     "node": ">=18.0.0"
   }
