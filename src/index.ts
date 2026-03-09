@@ -82,11 +82,14 @@ export class YoutubeTranscript {
     try {
       return await this.fetchTranscriptWithHtmlScraping(videoId, config);
     } catch (e) {
-      if (e instanceof YoutubeTranscriptEmptyError) {
-        return await this.fetchTranscriptWithInnerTube(videoId, config);
-      } else {
-        throw e;
-      }
+if (
+  e instanceof YoutubeTranscriptEmptyError ||
+  e instanceof YoutubeTranscriptDisabledError
+) {
+  return await this.fetchTranscriptWithInnerTube(videoId, config);
+} else {
+  throw e;
+}
     }
   }
 

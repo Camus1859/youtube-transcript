@@ -16,6 +16,9 @@ export declare class YoutubeTranscriptNotAvailableError extends YoutubeTranscrip
 export declare class YoutubeTranscriptNotAvailableLanguageError extends YoutubeTranscriptError {
     constructor(lang: string, availableLangs: string[], videoId: string);
 }
+export declare class YoutubeTranscriptEmptyError extends YoutubeTranscriptError {
+    constructor(videoId: string, method: string);
+}
 export interface TranscriptConfig {
     lang?: string;
 }
@@ -35,6 +38,26 @@ export declare class YoutubeTranscript {
      * @param config Get transcript in a specific language ISO
      */
     static fetchTranscript(videoId: string, config?: TranscriptConfig): Promise<TranscriptResponse[]>;
+    /**
+     * Fetch transcript from YTB Video using HTML scraping
+     * @param videoId Video url or video identifier
+     * @param config Get transcript in a specific language ISO
+     */
+    private static fetchTranscriptWithHtmlScraping;
+    /**
+     * Fetch transcript from YTB Video using InnerTube API
+     * @param videoId Video url or video identifier
+     * @param config Get transcript in a specific language ISO
+     */
+    private static fetchTranscriptWithInnerTube;
+    private static decodeHTMLEntities;
+    /**
+     * Process transcript from data captions
+     * @param captions Data captions
+     * @param videoId Video url or video identifier
+     * @param config Get transcript in a specific language ISO
+     */
+    private static processTranscriptFromCaptions;
     /**
      * Retrieve video id from url or string
      * @param videoId video url or video id

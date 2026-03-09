@@ -23,9 +23,11 @@ function __awaiter(thisArg, _arguments, P, generator) {
     });
 }
 
-const RE_YOUTUBE = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
+const RE_YOUTUBE = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)';
 const RE_XML_TRANSCRIPT = /<text start="([^"]*)" dur="([^"]*)">([^<]*)<\/text>/g;
+const RE_XML_TRANSCRIPT_ASR = /<p t="(\d+)" d="(\d+)"[^>]*>([\s\S]*?)<\/p>/g;
+const RE_XML_TRANSCRIPT_ASR_SEGMENT = /<s[^>]*>([^<]*)<\/s>/g;
 class YoutubeTranscriptError extends Error {
     constructor(message) {
         super(`[YoutubeTranscript] 🚨 ${message}`);
@@ -56,6 +58,11 @@ class YoutubeTranscriptNotAvailableLanguageError extends YoutubeTranscriptError 
         super(`No transcripts are available in ${lang} this video (${videoId}). Available languages: ${availableLangs.join(', ')}`);
     }
 }
+class YoutubeTranscriptEmptyError extends YoutubeTranscriptError {
+    constructor(videoId, method) {
+        super(`The transcript file URL returns an empty response using ${method} (${videoId})`);
+    }
+}
 /**
  * Class to retrieve transcript if exist
  */
@@ -66,43 +73,127 @@ class YoutubeTranscript {
      * @param config Get transcript in a specific language ISO
      */
     static fetchTranscript(videoId, config) {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                return yield this.fetchTranscriptWithHtmlScraping(videoId, config);
+            }
+            catch (e) {
+                if (e instanceof YoutubeTranscriptEmptyError) {
+                    return yield this.fetchTranscriptWithInnerTube(videoId, config);
+                }
+                else {
+                    throw e;
+                }
+            }
+        });
+    }
+    /**
+     * Fetch transcript from YTB Video using HTML scraping
+     * @param videoId Video url or video identifier
+     * @param config Get transcript in a specific language ISO
+     */
+    static fetchTranscriptWithHtmlScraping(videoId, config) {
         var _a;
+        return __awaiter(this, void 0, void 0, function* () {
+            const identifier = this.retrieveVideoId(videoId);
+            const videoPageResponse = yield fetch(`https://www.youtube.com/watch?v=${identifier}`, {
+                headers: Object.assign(Object.assign({}, ((config === null || config === void 0 ? void 0 : config.lang) && { 'Accept-Language': config.lang })), { 'User-Agent': USER_AGENT }),
+            });
+            const videoPageBody = yield videoPageResponse.text();
+            const splittedHTML = videoPageBody.split('"captions":');
+            if (splittedHTML.length <= 1) {
+                if (videoPageBody.includes('class="g-recaptcha"')) {
+                    throw new YoutubeTranscriptTooManyRequestError();
+                }
+                if (!videoPageBody.includes('"playabilityStatus":')) {
+                    throw new YoutubeTranscriptVideoUnavailableError(videoId);
+                }
+                throw new YoutubeTranscriptDisabledError(videoId);
+            }
+            const captions = (_a = (() => {
+                try {
+                    return JSON.parse(splittedHTML[1].split(',"videoDetails')[0].replace('\n', ''));
+                }
+                catch (e) {
+                    return undefined;
+                }
+            })()) === null || _a === void 0 ? void 0 : _a['playerCaptionsTracklistRenderer'];
+            const processedTranscript = yield this.processTranscriptFromCaptions(captions, videoId, config);
+            if (!processedTranscript.length) {
+                throw new YoutubeTranscriptEmptyError(videoId, 'HTML scraping');
+            }
+            return processedTranscript;
+        });
+    }
+    /**
+     * Fetch transcript from YTB Video using InnerTube API
+     * @param videoId Video url or video identifier
+     * @param config Get transcript in a specific language ISO
+     */
+    static fetchTranscriptWithInnerTube(videoId, config) {
+        var _a, _b;
         return __awaiter(this, void 0, void 0, function* () {
             const identifier = this.retrieveVideoId(videoId);
             const options = {
                 method: 'POST',
-                headers: Object.assign(Object.assign({}, ((config === null || config === void 0 ? void 0 : config.lang) && { 'Accept-Language': config.lang })), { 'Content-Type': 'application/json', Origin: 'https://www.youtube.com', Referer: `https://www.youtube.com/watch?v=${identifier}` }),
+                headers: Object.assign(Object.assign({}, ((config === null || config === void 0 ? void 0 : config.lang) && { 'Accept-Language': config.lang })), { 'Content-Type': 'application/json', 'User-Agent': 'com.google.android.youtube/19.09.37 (Linux; Android 13)' }),
                 body: JSON.stringify({
                     context: {
                         client: {
                             clientName: 'ANDROID',
                             clientVersion: '19.09.37',
-                            androidSdkVersion: 30,
-                            hl: 'en',
+                            androidSdkVersion: 33,
+                            hl: (_a = config === null || config === void 0 ? void 0 : config.lang) !== null && _a !== void 0 ? _a : 'en',
                             gl: 'US',
-                        }
+                        },
                     },
                     videoId: identifier,
-                    playbackContext: {
-                        contentPlaybackContext: {
-                            currentUrl: `/watch?v=${identifier}`,
-                            vis: 0,
-                            splay: false,
-                            autoCaptionsDefaultOn: false,
-                            autonavState: 'STATE_NONE',
-                            html5Preference: 'HTML5_PREF_WANTS',
-                            lactThreshold: -1
-                        }
-                    },
-                    racyCheckOk: false,
-                    contentCheckOk: false
                 }),
             };
-            const InnerTubeApiResponse = yield fetch('https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8', options);
+            const InnerTubeApiResponse = yield fetch('https://www.youtube.com/youtubei/v1/player', options);
             const responseJson = yield InnerTubeApiResponse.json();
-            const captions = (_a = responseJson === null || responseJson === void 0 ? void 0 : responseJson.captions) === null || _a === void 0 ? void 0 : _a.playerCaptionsTracklistRenderer;
+            const captions = (_b = responseJson === null || responseJson === void 0 ? void 0 : responseJson.captions) === null || _b === void 0 ? void 0 : _b.playerCaptionsTracklistRenderer;
             if (!captions) {
                 throw new YoutubeTranscriptDisabledError(identifier);
+            }
+            const processedTranscript = yield this.processTranscriptFromCaptions(captions, videoId, config);
+            if (!processedTranscript.length) {
+                throw new YoutubeTranscriptEmptyError(videoId, 'InnerTube API');
+            }
+            return processedTranscript;
+        });
+    }
+    static decodeHTMLEntities(text) {
+        var _a;
+        if (!text)
+            return '';
+        if (typeof window !== 'undefined' &&
+            typeof window.document !== 'undefined') {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(text, 'text/html');
+            return (_a = doc.documentElement.textContent) !== null && _a !== void 0 ? _a : '';
+        }
+        if (typeof globalThis !== 'undefined') {
+            return text
+                .replace(/&quot;/g, '"')
+                .replace(/&amp;/g, '&')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&#39;/g, "'")
+                .replace(/&#x27;/g, "'");
+        }
+        return text;
+    }
+    /**
+     * Process transcript from data captions
+     * @param captions Data captions
+     * @param videoId Video url or video identifier
+     * @param config Get transcript in a specific language ISO
+     */
+    static processTranscriptFromCaptions(captions, videoId, config) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (!captions) {
+                throw new YoutubeTranscriptDisabledError(videoId);
             }
             if (!('captionTracks' in captions)) {
                 throw new YoutubeTranscriptNotAvailableError(videoId);
@@ -111,8 +202,10 @@ class YoutubeTranscript {
                 !captions.captionTracks.some((track) => track.languageCode === (config === null || config === void 0 ? void 0 : config.lang))) {
                 throw new YoutubeTranscriptNotAvailableLanguageError(config === null || config === void 0 ? void 0 : config.lang, captions.captionTracks.map((track) => track.languageCode), videoId);
             }
-            const transcriptURL = ((config === null || config === void 0 ? void 0 : config.lang) ? captions.captionTracks.find((track) => track.languageCode === (config === null || config === void 0 ? void 0 : config.lang))
-                : captions.captionTracks[0]).baseUrl.replace('&fmt=srv3', '') + '&fmt=srv1';
+            const transcriptURL = ((config === null || config === void 0 ? void 0 : config.lang) ? captions.captionTracks.find((track) => track.languageCode === (config === null || config === void 0 ? void 0 : config.lang) ||
+                track.languageCode.startsWith(config.lang + '-'))
+                : captions.captionTracks.find((t) => t.kind === 'asr') ||
+                    captions.captionTracks[0]).baseUrl;
             const transcriptResponse = yield fetch(transcriptURL, {
                 headers: Object.assign(Object.assign({}, ((config === null || config === void 0 ? void 0 : config.lang) && { 'Accept-Language': config.lang })), { 'User-Agent': USER_AGENT }),
             });
@@ -121,15 +214,46 @@ class YoutubeTranscript {
             }
             const transcriptBody = yield transcriptResponse.text();
             const results = [...transcriptBody.matchAll(RE_XML_TRANSCRIPT)];
-            return results.map((result) => {
+            if (results.length) {
+                return results
+                    .map((result) => {
+                    var _a;
+                    return ({
+                        text: result[3],
+                        duration: parseFloat(result[2]),
+                        offset: parseFloat(result[1]),
+                        lang: (_a = config === null || config === void 0 ? void 0 : config.lang) !== null && _a !== void 0 ? _a : captions.captionTracks[0].languageCode,
+                    });
+                })
+                    .filter((item) => item.text.trim() !== '');
+            }
+            const asrResults = [...transcriptBody.matchAll(RE_XML_TRANSCRIPT_ASR)];
+            return asrResults
+                .map((block) => {
                 var _a;
-                return ({
-                    text: result[3],
-                    duration: parseFloat(result[2]),
-                    offset: parseFloat(result[1]),
+                let text;
+                const matchAllASRSegment = [
+                    ...block[3].matchAll(RE_XML_TRANSCRIPT_ASR_SEGMENT),
+                ];
+                if (matchAllASRSegment.length) {
+                    text = matchAllASRSegment
+                        .map((s) => s[1])
+                        .join('')
+                        .trim();
+                }
+                else {
+                    text = block[3].replace(/<[^>]*>/g, '').trim();
+                }
+                if (!text || text.trim() === '')
+                    return null;
+                return {
+                    text: this.decodeHTMLEntities(text),
+                    duration: Number(block[2]) / 1000,
+                    offset: Number(block[1]) / 1000,
                     lang: (_a = config === null || config === void 0 ? void 0 : config.lang) !== null && _a !== void 0 ? _a : captions.captionTracks[0].languageCode,
-                });
-            });
+                };
+            })
+                .filter(Boolean);
         });
     }
     /**
@@ -148,4 +272,4 @@ class YoutubeTranscript {
     }
 }
 
-export { YoutubeTranscript, YoutubeTranscriptDisabledError, YoutubeTranscriptError, YoutubeTranscriptNotAvailableError, YoutubeTranscriptNotAvailableLanguageError, YoutubeTranscriptTooManyRequestError, YoutubeTranscriptVideoUnavailableError };
+export { YoutubeTranscript, YoutubeTranscriptDisabledError, YoutubeTranscriptEmptyError, YoutubeTranscriptError, YoutubeTranscriptNotAvailableError, YoutubeTranscriptNotAvailableLanguageError, YoutubeTranscriptTooManyRequestError, YoutubeTranscriptVideoUnavailableError };
